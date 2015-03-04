@@ -72,7 +72,7 @@ namespace ProcessWrappers
                 OpenPipes();
             CreateStreamOnPipes();
 
-            TestPipeMode();
+            //TestPipeMode();
         }
         private void OpenPipes()
         {

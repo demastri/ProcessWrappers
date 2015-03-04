@@ -17,7 +17,7 @@ namespace Server
         static void Main(string[] args)
         {
             string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
-            bool useStdIO = true;
+            bool useStdIO = false;
 
             HostWrapper myHost = new HostWrapper(myExeLoc, useStdIO, ProcessControl);
 
@@ -38,6 +38,7 @@ namespace Server
             } while (myHost.CheckProgress() != HostWrapper.IsEnding );
 
             myHost.Cleanup();
+            Console.WriteLine("[SERVER] Client quit. Server terminating.");
         }
 
         public static int ProcessControl(HostWrapper thisHost)
