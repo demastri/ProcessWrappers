@@ -8,175 +8,51 @@ using System.IO;
 using System.IO.Pipes;
 using System.Diagnostics;
 
+using ProcessWrappers;
+
 namespace Server
 {
     class Server
     {
-        static Process pipeClient;
-        static AnonymousPipeServerStream pipeServerOut;
-        static StreamWriter StreamOut;
-
-        static AnonymousPipeServerStream pipeServerIn;
-        static StreamReader StreamIn;
-
-        static string localBuffer;
-        static string processBuffer;
-
         static void Main(string[] args)
         {
-            InitProcess("C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe");
-            OpenPipes();
-            ConnectPipeToProcess();
-            CreateStreamOnPipes();
+            string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
+            bool useStdIO = true;
 
-            try
+            HostWrapper myHost = new HostWrapper(myExeLoc, useStdIO, ProcessControl);
+
+            myHost.Start();
+
+            myHost.WriteToClient("SYNC");
+
+            string localBuffer = "";
+            Task<string> readTask = myHost.ReadConsoleAsync();
+            do
             {
-                // Send a 'sync message' and wait for client to receive it.
-                WriteToStream("SYNC");
-
-                bool running = true;
-                while (running)
+                if (readTask.IsCompleted)
                 {
-                    running = CheckLocalIO();
-                    CheckProcessIO();
-                    running = HandleAllIO() && running;
+                    localBuffer = readTask.Result;
+                    myHost.WriteToClient(localBuffer);
+                    readTask = myHost.ReadConsoleAsync();
                 }
-            }
-            // Catch the IOException that is raised if the pipe is broken or disconnected. 
-            catch (IOException e)
+            } while (myHost.CheckProgress() != HostWrapper.IsEnding );
+
+            myHost.Cleanup();
+        }
+
+        public static int ProcessControl(HostWrapper thisHost)
+        {
+            System.Threading.Thread.Sleep(250);
+            while (thisHost.incoming.Count > 0)
             {
-                Console.WriteLine("[SERVER] Error: {0}", e.Message);
+                string s = thisHost.incoming[0];
+                Console.WriteLine(" From Client: <"+s+">");
+                thisHost.incoming.RemoveAt(0);
+                if (s.StartsWith("QUIT"))
+                    return HostWrapper.IsEnding;
             }
-
-            CleanupStreams();
-            CleanupPipes();
-            CleanupProcess();
+            return HostWrapper.IsRunning;
         }
 
-        static public void InitProcess(string procName)
-        {
-            pipeClient = new Process();
-            pipeClient.StartInfo.FileName = procName;
-
-        }
-
-        static public void OpenPipes()
-        {
-            pipeServerOut =
-               new AnonymousPipeServerStream(PipeDirection.Out,
-               HandleInheritability.Inheritable);
-
-            // Show that anonymous pipes do not support Message mode. 
-            try
-            {
-                Console.WriteLine("[SERVER] Setting ReadMode to \"Message\".");
-                pipeServerOut.ReadMode = PipeTransmissionMode.Message;
-            }
-            catch (NotSupportedException e)
-            {
-                Console.WriteLine("[SERVER] Exception:\n    {0}", e.Message);
-            }
-
-            Console.WriteLine("[SERVER] Current TransmissionMode: {0}.",
-                pipeServerOut.TransmissionMode);
-
-            pipeServerIn =
-               new AnonymousPipeServerStream(PipeDirection.In,
-               HandleInheritability.Inheritable);
-      
-        }
-        static public void ConnectPipeToProcess()
-        {
-            // Pass the client process a handle to the server.
-            pipeClient.StartInfo.Arguments =
-                pipeServerOut.GetClientHandleAsString() + " " + pipeServerIn.GetClientHandleAsString();
-
-            pipeClient.StartInfo.UseShellExecute = false;
-            pipeClient.Start();
-
-            pipeServerOut.DisposeLocalCopyOfClientHandle();
-            pipeServerIn.DisposeLocalCopyOfClientHandle();
-        }
-        static public void CreateStreamOnPipes()
-        {
-            StreamOut = new StreamWriter(pipeServerOut);
-            // Read user input and send that to the client process. 
-            StreamOut.AutoFlush = true;
-
-            StreamIn = new StreamReader(pipeServerIn);
-        }
-
-        static public void WriteToStream(string s)
-        {
-            //Console.WriteLine("[SERVER] Writing: <"+s+">.");
-            StreamOut.WriteLine(s);
-            //pipeServerOut.WaitForPipeDrain();
-        }
-
-        static Task<string> readAsync = null;
-        static async public void CheckProcessIO()
-        {
-            if( readAsync == null )
-                readAsync = StreamIn.ReadLineAsync();
-
-            if( readAsync.IsCompleted ) 
-            {
-                processBuffer = await readAsync;
-                readAsync.Dispose();
-                readAsync = null;
-            }
-            else
-                processBuffer = null;
-        }
-        static public bool CheckLocalIO()
-        {
-            if (Console.KeyAvailable)
-            {
-                localBuffer = Console.ReadLine();
-            }
-            return true;
-        }
-        static public bool HandleAllIO()
-        {
-            if (localBuffer != null)
-            {
-                // Send the console input to the client process.
-                WriteToStream(localBuffer);
-
-                if (localBuffer == "quit")
-                    return false;
-                Console.Write("[SERVER] Enter text: ");
-                localBuffer = null;
-            }
-            if (processBuffer != null)
-            {
-                Console.WriteLine("");
-                Console.WriteLine("   [CLIENT] from process: " + processBuffer);
-                Console.Write("[SERVER] Enter text: ");
-                processBuffer = null;
-            }
-            return true;
-        }
-        static public void CleanupStreams()
-        {
-            if (StreamOut != null)
-                StreamOut.Dispose();
-            if (StreamIn != null)
-                StreamIn.Dispose();
-        }
-        static public void CleanupPipes()
-        {
-            if (pipeServerOut != null)
-                pipeServerOut.Dispose();
-        }
-        static public void CleanupProcess()
-        {
-            if (pipeClient != null)
-            {
-                pipeClient.WaitForExit();
-                pipeClient.Close();
-                Console.WriteLine("[SERVER] Client quit. Server terminating.");
-            }
-        }
     }
 }

@@ -5,84 +5,58 @@ using System.Text;
 using System.Threading.Tasks;
 
 using System.IO;
-using System.IO.Pipes;
+using ProcessWrappers;
 
 namespace Client
 {
     class Client
     {
-        static PipeStream pipeClientOut;
-        static StreamReader sr;
-        static StreamWriter StreamOut;
-        
         static void Main(string[] args)
         {
-            if (args.Length > 1)
+            ClientWrapper myClient = new ClientWrapper(args);
+
+            myClient.Start();
+
+            string temp;    // Display the read text to the console 
+            bool done = false;
+            // Wait for 'sync message' from the server. 
+            do
             {
-                using (PipeStream pipeClient =
-                    new AnonymousPipeClientStream(PipeDirection.In, args[0]))
+                myClient.ClientMessage("[CLIENT] Wait for sync...");
+                temp = myClient.ClientReadLine();
+            }
+            while (!temp.StartsWith("SYNC"));
+            myClient.ClientMessage("[CLIENT] Received sync...");
+
+            // Read the server data and echo to the console. 
+            Task<string> readTask = myClient.ClientReadLineAsync();
+            do
+            {
+                if (readTask.IsCompleted)
                 {
-                    using (pipeClientOut =
-                        new AnonymousPipeClientStream(PipeDirection.Out, args[1]))
-                    {
-                        using (sr = new StreamReader(pipeClient))
-                        {
-                            StreamOut = new StreamWriter(pipeClientOut);
-                            // Read user input and send that to the client process. 
-                            StreamOut.AutoFlush = true;
-
-                            // Show that anonymous Pipes do not support Message mode. 
-                            try
-                            {
-                                ClientMessage("[CLIENT] Setting ReadMode to \"Message\".");
-                                pipeClient.ReadMode = PipeTransmissionMode.Message;
-                            }
-                            catch (NotSupportedException e)
-                            {
-                                ClientMessage("[CLIENT] Execption:\n    " + e.Message);
-                            }
-
-                            ClientMessage("[CLIENT] Current TransmissionMode: " + pipeClient.TransmissionMode.ToString() + ".");
-
-                            // Display the read text to the console 
-                            string temp;
-
-                            // Wait for 'sync message' from the server. 
-                            do
-                            {
-                                ClientMessage("[CLIENT] Wait for sync...");
-                                temp = sr.ReadLine();
-                            }
-                            while (!temp.StartsWith("SYNC"));
-
-                            ClientMessage("[CLIENT] Received sync...");
-
-                            // Read the server data and echo to the console. 
-                            do
-                            {
-                                //ClientMessage("[CLIENT] waiting for something...");
-                                temp = sr.ReadLine();
-                                //ClientMessage("[CLIENT] Got something...");
-                                if (temp != null)
-                                    ClientMessage("[CLIENT] Echo: " + temp);
-                            }
-                            while (!temp.StartsWith("quit"));
-                            ClientMessage("[CLIENT] quitting client process...");
-                        }
-                    }
+                    temp = readTask.Result;
+                    myClient.ClientMessage("[CLIENT] Echo: " + temp);
+                    if (temp.StartsWith("QUIT"))
+                        done = true;
+                    else 
+                        readTask = myClient.ClientReadLineAsync();
+                }
+                else
+                {
+                    System.Threading.Thread.Sleep(750);
+                    myClient.ClientMessage("[CLIENT] Wait...");
                 }
             }
+            while (!done);
+
+            myClient.ClientMessage("[CLIENT] Press Enter to Quit...");
+            temp = myClient.ClientReadLine();
+
+            myClient.ClientMessage("[CLIENT] quitting client process...");
+            myClient.ClientMessage("QUIT"); // mark to the server that we're done...
+
+            myClient.Cleanup();
         }
-        static void ClientMessage(string msg)
-        {
-            bool usePipe = true;
-            if (!usePipe)
-                Console.WriteLine("[CLIENTCONSOLE] " +msg);
-            if (usePipe)
-            {
-                StreamOut.WriteLine(msg);
-                //pipeClientOut.WaitForPipeDrain();
-            }
-        }
+
     }
 }
