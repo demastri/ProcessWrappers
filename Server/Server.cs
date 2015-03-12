@@ -17,13 +17,15 @@ namespace Server
         static void Main(string[] args)
         {
             string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
-            bool useStdIO = false;
+            myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\engines\\stockfish\\stockfish_5_32bit.exe";
+            bool useStdIO = true;
 
             HostWrapper myHost = new HostWrapper(myExeLoc, useStdIO, ProcessControl);
 
             myHost.Start();
 
-            myHost.WriteToClient("SYNC");
+            //myHost.WriteToClient("SYNC");
+            myHost.WriteToClient("uci");
 
             string localBuffer = "";
             Task<string> readTask = myHost.ReadConsoleAsync();
@@ -36,6 +38,7 @@ namespace Server
                     readTask = myHost.ReadConsoleAsync();
                 }
             } while (myHost.CheckProgress() != HostWrapper.IsEnding );
+            myHost.WriteToClient("quit");
 
             myHost.Cleanup();
             Console.WriteLine("[SERVER] Client quit. Server terminating.");
@@ -49,7 +52,7 @@ namespace Server
                 string s = thisHost.incoming[0];
                 Console.WriteLine(" From Client: <"+s+">");
                 thisHost.incoming.RemoveAt(0);
-                if (s.StartsWith("QUIT"))
+                if (s.StartsWith("uciok"))
                     return HostWrapper.IsEnding;
             }
             return HostWrapper.IsRunning;

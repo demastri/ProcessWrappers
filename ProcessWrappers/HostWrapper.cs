@@ -128,7 +128,7 @@ namespace ProcessWrappers
             clientProcess.StartInfo.Arguments =
                 (usePipeIO ?
                 (pipeServerOut.GetClientHandleAsString() + " " + pipeServerIn.GetClientHandleAsString()) :
-                    "stdio");
+                    "");
 
             clientProcess.StartInfo.UseShellExecute = false;
             if (useStdIO)
@@ -136,6 +136,8 @@ namespace ProcessWrappers
                 clientProcess.StartInfo.RedirectStandardInput = true;
                 clientProcess.StartInfo.RedirectStandardOutput = true;
                 clientProcess.StartInfo.RedirectStandardError = true;
+                
+                clientProcess.StartInfo.CreateNoWindow = true;
 
                 clientProcess.OutputDataReceived += clientProcess_OutputDataReceived;
             }
