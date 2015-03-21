@@ -51,8 +51,23 @@ namespace ProcessWrappers
         public const int IsEnding = 1;
         public const int IsRunning = 2;
 
+        string logLocation = "C:\\HostWrapper\\logfile.txt";
+        bool logging;
+
         public HostWrapper(string processLoc, bool stdio, ProcessControlHandler datasink)
         {
+            logging = false;
+            outgoing = new List<string>();
+            incoming = new List<string>();
+            processLocation = processLoc;
+            useStdIO = stdio;
+            usePipeIO = !useStdIO;
+            thisHandler = datasink;
+            pipeReaderTask = null;
+        }
+        public HostWrapper(string processLoc, bool stdio, ProcessControlHandler datasink, bool setLog)
+        {
+            logging = setLog;
             outgoing = new List<string>();
             incoming = new List<string>();
             processLocation = processLoc;
@@ -93,7 +108,7 @@ namespace ProcessWrappers
         public void Start()
         {
             InitProcess(processLocation);
-            if( usePipeIO )
+            if (usePipeIO)
                 OpenPipes();
             ConnectPipeToProcess();
             CreateStreamOnPipes();
@@ -136,7 +151,7 @@ namespace ProcessWrappers
                 clientProcess.StartInfo.RedirectStandardInput = true;
                 clientProcess.StartInfo.RedirectStandardOutput = true;
                 clientProcess.StartInfo.RedirectStandardError = true;
-                
+
                 clientProcess.StartInfo.CreateNoWindow = true;
 
                 clientProcess.OutputDataReceived += clientProcess_OutputDataReceived;
@@ -189,7 +204,7 @@ namespace ProcessWrappers
         }
 
 
-#endregion
+        #endregion
 
         #region events
         private void RegisterOutgoingEvents()
@@ -212,8 +227,8 @@ namespace ProcessWrappers
         {
             incoming.Add(e.Data);
         }
-        
-#endregion
+
+        #endregion
 
         #region IO
         public int CheckProgress()          // visible to server, check data from client
@@ -227,10 +242,11 @@ namespace ProcessWrappers
             RaiseOutgoingEvent();
         }
 
-        private void WriteToConsole() 
+        private void WriteToConsole()
         {
             while (incoming.Count > 0)
             {
+                WriteLog("Incoming -> " + incoming[0]);
                 Console.WriteLine(incoming[0]);
                 incoming.RemoveAt(0);
             }
@@ -238,12 +254,19 @@ namespace ProcessWrappers
 
         private void WriteToStream()
         {
-            while (outgoing.Count > 0)
+            try
             {
-                StreamOut.WriteLine(outgoing[0]);
+                while (outgoing.Count > 0)
+                {
+                    WriteLog("Outgoing -> " + outgoing[0]);
+                    StreamOut.WriteLine(outgoing[0]);
 
-                StreamOut.Flush();
-                outgoing.RemoveAt(0);
+                    StreamOut.Flush();
+                    outgoing.RemoveAt(0);
+                }
+            }
+            catch (Exception e)
+            {
             }
         }
 
@@ -269,7 +292,16 @@ namespace ProcessWrappers
             return Task.Run(() => Console.ReadLine());
         }
 
-#endregion
+        public void WriteLog(string msg)
+        {
+            if (!logging)
+                return;
+            StreamWriter log = new StreamWriter(logLocation, true);
+            log.WriteLine(DateTime.Now.ToString() + ": " + msg);
+            log.Flush();
+            log.Close();
+        }
+        #endregion
 
         #region Cleanup
 
@@ -298,11 +330,16 @@ namespace ProcessWrappers
         {
             if (clientProcess != null)
             {
-                clientProcess.WaitForExit();
-                clientProcess.Close();
+                try
+                {
+                    clientProcess.Kill();
+                    clientProcess.WaitForExit();
+                    clientProcess.Close();
+                }
+                catch (Exception e) { }
             }
         }
-#endregion
+        #endregion
 
     }
 }
