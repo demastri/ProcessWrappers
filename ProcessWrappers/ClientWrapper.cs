@@ -6,6 +6,8 @@ using System.Threading.Tasks;
 using System.IO;
 using System.IO.Pipes;
 
+using QueueCommon;
+
 namespace ProcessWrappers
 {
     public class ClientWrapper
@@ -44,24 +46,45 @@ namespace ProcessWrappers
             pipeClientOut = null;
             StreamIn = null;
             StreamOut = null;
-            usePipeIO = (args.Length > 1);    // ok - both pipes specified, otherwise use stdio...
-            if (usePipeIO)
-            {
-                inPipeID = args[0];
-                outPipeID = args[1];
-            }
+            useStdIO = false;
+            usePipeIO = false;
+            useQueueIO = false;
+
+            if (args.Length == 0)
+                useStdIO = true;
+            else// ok - both pipes specified, otherwise use stdio...
+                switch (args[0].ToLower().Trim())
+                {
+                    case "stdio":
+                        useStdIO = true;
+                        break;
+                    case "pipes":
+                        usePipeIO = true;
+                        inPipeID = args[1];
+                        outPipeID = args[2];
+                        break;
+                    case "queue":
+                        queueParams = args[1];
+                        useQueueIO = true;
+                        break;
+                }
         }
         #endregion
 
         #region Private fields
-        
+
+        QueueingModel queueClient;
         PipeStream pipeClientIn;
         PipeStream pipeClientOut;
         StreamReader StreamIn;
         StreamWriter StreamOut;
+        bool useStdIO;
+        bool useQueueIO;
         bool usePipeIO;
         string inPipeID;
         string outPipeID;
+        string queueParams;
+        List<string> queueMsgs;
 
         #endregion
 
@@ -70,6 +93,8 @@ namespace ProcessWrappers
         {
             if (usePipeIO)
                 OpenPipes();
+            if (useQueueIO) // the assumption is that the component will use stdio for IO and this wrap will turn that into queue msgs
+                OpenQueue();
             CreateStreamOnPipes();
 
             //TestPipeMode();
@@ -79,6 +104,23 @@ namespace ProcessWrappers
             pipeClientIn = new AnonymousPipeClientStream(PipeDirection.In, inPipeID);
             pipeClientOut = new AnonymousPipeClientStream(PipeDirection.Out, outPipeID);
         }
+        private void OpenQueue()
+        {
+            queueMsgs = new List<string>();
+            string[] param = queueParams.Split('|');
+            string typeID = param[5];
+            List<string> routes = new List<string>();
+            routes.Add("*.workRequest." + typeID);
+            routes.Add("*.workerCommand." + typeID);
+            queueClient = new QueueingModel(param[0], "topic", typeID, routes, param[1], param[3], param[4], Convert.ToInt32(param[2]));
+            queueClient.SetListenerCallback(HandlePosts);
+        }
+
+        private void HandlePosts(byte[] msg, string routeKey)
+        {
+            queueMsgs.Add(System.Text.Encoding.Default.GetString(msg));
+            //ClientMessage("[CLIENT] send message rec'd from queue to object");
+        }
         private void CreateStreamOnPipes()
         {
             if (usePipeIO)
@@ -87,7 +129,7 @@ namespace ProcessWrappers
                 StreamOut = new StreamWriter(pipeClientOut);
                 StreamOut.AutoFlush = true;
             }
-            else
+            if (useStdIO)
             {
                 StreamIn = new StreamReader(Console.OpenStandardInput());
                 StreamOut = new StreamWriter(Console.OpenStandardOutput());
@@ -119,21 +161,45 @@ namespace ProcessWrappers
         #region IO
         public void ClientMessage(string msg)
         {
-            StreamOut.WriteLine(msg);
-            StreamOut.Flush();
-            if (usePipeIO)
-                pipeClientOut.WaitForPipeDrain();
+            ClientMessage(msg, "");
+        }
+        public void ClientMessage(string msg, string route)
+        {
+            if (useQueueIO)
+            {
+                queueClient.PostMessage(msg, route);
+            }
+            else
+            {
+                StreamOut.WriteLine(msg);
+                StreamOut.Flush();
+                if (usePipeIO)
+                    pipeClientOut.WaitForPipeDrain();
+            }
         }
         public string ClientReadLine()
         {
+            if (useQueueIO)
+            {
+                while (true)
+                {
+                    if(queueMsgs.Count > 0)
+                    {
+                        string outStr = queueMsgs[0];
+                        queueMsgs.RemoveAt(0);
+                        return outStr;
+                    }
+                    System.Threading.Thread.Sleep(250);
+                }
+            }
             return StreamIn.ReadLine();
         }
         public Task<string> ClientReadLineAsync()
         {
-            return Task.Run(() => StreamIn.ReadLine());
+            return Task.Run(() => ClientReadLine());
         }
 
-#endregion
+        #endregion
 
         #region Cleanup
 

@@ -54,27 +54,56 @@ namespace ProcessWrappers
         string logLocation = "C:\\HostWrapper\\logfile.txt";
         bool logging;
 
+        public HostWrapper(string processLoc, bool stdio, bool queueio, bool pipeio,
+                        string exch, string host, string port, string uid, string pwd, string typeid, ProcessControlHandler datasink)
+        {
+            qexch = exch;
+            qhost = host;
+            qport = port;
+            quid = uid;
+            qpwd = pwd;
+            qtypeid = typeid;
+
+            logging = false;
+            outgoing = new List<string>();
+            incoming = new List<string>();
+            processLocation = processLoc;
+            useStdIO = stdio;
+            usePipeIO = pipeio;
+            useQueueIO = queueio;
+            thisHandler = datasink;
+            pipeReaderTask = null;
+            InitIOModel();
+        }
         public HostWrapper(string processLoc, bool stdio, ProcessControlHandler datasink)
         {
+            qexch = qhost = qport = quid = qpwd = qtypeid = "";
+
             logging = false;
             outgoing = new List<string>();
             incoming = new List<string>();
             processLocation = processLoc;
             useStdIO = stdio;
             usePipeIO = !useStdIO;
+            useQueueIO = false;
             thisHandler = datasink;
             pipeReaderTask = null;
+            InitIOModel();
         }
         public HostWrapper(string processLoc, bool stdio, ProcessControlHandler datasink, bool setLog)
         {
+            qexch = qhost = qport = quid = qpwd = qtypeid = "";
+
             logging = setLog;
             outgoing = new List<string>();
             incoming = new List<string>();
             processLocation = processLoc;
             useStdIO = stdio;
             usePipeIO = !useStdIO;
+            useQueueIO = false;
             thisHandler = datasink;
             pipeReaderTask = null;
+            InitIOModel();
         }
         #endregion
 
@@ -87,7 +116,7 @@ namespace ProcessWrappers
         event OutgoingDataHandler OutgoingData;
         event IncomingDataHandler IncomingData;
 
-
+        IOModel thisIO;
         Process clientProcess;
         AnonymousPipeServerStream pipeServerOut;
         StreamWriter StreamOut;
@@ -95,7 +124,16 @@ namespace ProcessWrappers
         AnonymousPipeServerStream pipeServerIn;
         StreamReader StreamIn;
 
+        string qexch;
+        string qport;
+        string qhost;
+        string quid;
+        string qpwd;
+        string qtypeid;
+
+
         string processLocation = "";
+        bool useQueueIO = false;
         bool usePipeIO = false;
         bool useStdIO = true;
         ProcessControlHandler thisHandler;
@@ -105,13 +143,25 @@ namespace ProcessWrappers
 
         #region Init
 
+        private void InitIOModel()
+        {
+            if (usePipeIO)
+                thisIO = new PipeIOModel(this);
+            else if (useStdIO)
+                thisIO = new StdIOModel(this);
+            else if (useQueueIO)
+                thisIO = new QueueIOModel(this);
+            else
+                thisIO = null;
+
+        }
         public void Start()
         {
             InitProcess(processLocation);
-            if (usePipeIO)
-                OpenPipes();
-            ConnectPipeToProcess();
-            CreateStreamOnPipes();
+
+            thisIO.InitComms();
+            thisIO.StartProcess();
+            thisIO.ConnectOutputComms();
 
             RegisterIncomingEvents();
             RegisterOutgoingEvents();
@@ -125,62 +175,6 @@ namespace ProcessWrappers
             clientProcess.StartInfo.FileName = procName;
         }
 
-        private void OpenPipes()
-        {
-            pipeServerOut =
-               new AnonymousPipeServerStream(PipeDirection.Out,
-               HandleInheritability.Inheritable);
-
-            pipeServerIn =
-               new AnonymousPipeServerStream(PipeDirection.In,
-               HandleInheritability.Inheritable);
-
-        }
-
-        private void ConnectPipeToProcess()
-        {
-            // Pass the client process a handle to the server.
-            clientProcess.StartInfo.Arguments =
-                (usePipeIO ?
-                (pipeServerOut.GetClientHandleAsString() + " " + pipeServerIn.GetClientHandleAsString()) :
-                    "");
-
-            clientProcess.StartInfo.UseShellExecute = false;
-            if (useStdIO)
-            {
-                clientProcess.StartInfo.RedirectStandardInput = true;
-                clientProcess.StartInfo.RedirectStandardOutput = true;
-                clientProcess.StartInfo.RedirectStandardError = true;
-
-                clientProcess.StartInfo.CreateNoWindow = true;
-
-                clientProcess.OutputDataReceived += clientProcess_OutputDataReceived;
-            }
-
-            clientProcess.Start();
-
-            if (useStdIO)
-                clientProcess.BeginOutputReadLine();
-            if (usePipeIO)
-            {
-                pipeServerOut.DisposeLocalCopyOfClientHandle();
-                pipeServerIn.DisposeLocalCopyOfClientHandle();
-            }
-        }
-
-        private void CreateStreamOnPipes()
-        {
-            if (useStdIO)
-                StreamOut = clientProcess.StandardInput;
-            if (usePipeIO)
-            {
-                StreamOut = new StreamWriter(pipeServerOut);
-                // Read user input and send that to the client process. 
-                StreamOut.AutoFlush = true;
-
-                StreamIn = new StreamReader(pipeServerIn);
-            }
-        }
         private void TestPipeMode()
         {
             // Show that anonymous Pipes do not support Message mode. 
@@ -314,10 +308,13 @@ namespace ProcessWrappers
 
         private void CleanupStreams()
         {
-            if (StreamOut != null)
-                StreamOut.Dispose();
-            if (StreamIn != null)
-                StreamIn.Dispose();
+            if (useStdIO)
+            {
+                if (StreamOut != null)
+                    StreamOut.Dispose();
+                if (StreamIn != null)
+                    StreamIn.Dispose();
+            }
         }
         private void CleanupPipes()
         {
@@ -341,5 +338,107 @@ namespace ProcessWrappers
         }
         #endregion
 
+        #region IOModel abstraction
+        public interface IOModel
+        {
+            void InitComms();
+            void StartProcess();
+            void ConnectOutputComms();
+        }
+
+        public class StdIOModel : IOModel
+        {
+            HostWrapper me;
+            public StdIOModel(HostWrapper hw)
+            {
+                me = hw;
+            }
+            public void InitComms()
+            {
+                me.clientProcess.StartInfo.Arguments = "Stdio ";
+                me.clientProcess.StartInfo.UseShellExecute = false;
+
+                me.clientProcess.StartInfo.RedirectStandardInput = true;
+                me.clientProcess.StartInfo.RedirectStandardOutput = true;
+                me.clientProcess.StartInfo.RedirectStandardError = true;
+                me.clientProcess.StartInfo.CreateNoWindow = true;
+                me.clientProcess.OutputDataReceived += me.clientProcess_OutputDataReceived;
+            }
+            public void StartProcess()
+            {
+                me.clientProcess.Start();
+                me.clientProcess.BeginOutputReadLine();
+            }
+            public void ConnectOutputComms()
+            {
+                me.StreamOut = me.clientProcess.StandardInput;
+            }
+        }
+        public class PipeIOModel : IOModel
+        {
+            HostWrapper me;
+            public PipeIOModel(HostWrapper hw)
+            {
+                me = hw;
+            }
+            public void InitComms()
+            {
+                OpenPipes();
+                me.clientProcess.StartInfo.Arguments = "Pipes " + me.pipeServerOut.GetClientHandleAsString() + " " + me.pipeServerIn.GetClientHandleAsString();
+                me.clientProcess.StartInfo.UseShellExecute = false;
+            }
+            public void StartProcess()
+            {
+                me.clientProcess.Start();
+                me.pipeServerOut.DisposeLocalCopyOfClientHandle();
+                me.pipeServerIn.DisposeLocalCopyOfClientHandle();
+            }
+            public void ConnectOutputComms()
+            {
+                me.StreamOut = new StreamWriter(me.pipeServerOut);
+                // Read user input and send that to the client process. 
+                me.StreamOut.AutoFlush = true;
+
+                me.StreamIn = new StreamReader(me.pipeServerIn);
+            }
+            private void OpenPipes()
+            {
+                me.pipeServerOut =
+                   new AnonymousPipeServerStream(PipeDirection.Out,
+                   HandleInheritability.Inheritable);
+
+                me.pipeServerIn =
+                   new AnonymousPipeServerStream(PipeDirection.In,
+                   HandleInheritability.Inheritable);
+            }
+
+        }
+        public class QueueIOModel : IOModel
+        {
+            HostWrapper me;
+            string paramString = "";
+            public QueueIOModel(HostWrapper hw)
+            {
+                me = hw;
+                paramString = me.qexch + "|" + me.qhost + "|" + me.qport + "|" + me.quid + "|" + me.qpwd + "|" + me.qtypeid;
+            }
+            public void InitComms()
+            {
+                // ### need to be able to init the queue connection detail for the process here as arguments
+                // exch, port, uid, pwd, typeid
+                me.clientProcess.StartInfo.Arguments = "Queue " + paramString;
+                me.clientProcess.StartInfo.UseShellExecute = false;
+            }
+            public void StartProcess()
+            {
+                // there is no other activity...
+                me.clientProcess.Start();
+            }
+            public void ConnectOutputComms()
+            {
+                // there is no other activity...
+            }
+        }
+        #endregion
     }
 }

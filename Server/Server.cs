@@ -8,24 +8,77 @@ using System.IO;
 using System.IO.Pipes;
 using System.Diagnostics;
 
+using QueueCommon;
 using ProcessWrappers;
 
 namespace Server
 {
     class Server
     {
+        static bool usePipeIO = false;
+        static bool useStdIO = false;
+        static bool useQueueIO = false;
+
+        static QueueingModel queueClient = null;
+
         static void Main(string[] args)
         {
-            string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
-            myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\engines\\stockfish\\stockfish_5_32bit.exe";
-            bool useStdIO = true;
+            //UseStdIo();
+            //UsePipesIo();
+            UseQueueIo();
+            Console.WriteLine("[SERVER] Done with testing - ENTER");
+            Console.ReadLine();
+        }
+        static void UseStdIo()
+        {
+            Console.WriteLine("[SERVER] Initializing StdIO");
+            usePipeIO = false;
+            useStdIO = true;
+            useQueueIO = false;
+            Run();
+        }
+        static void UsePipesIo()
+        {
+            Console.WriteLine("[SERVER] Initializing Pipes");
+            usePipeIO = true;
+            useStdIO = false;
+            useQueueIO = false;
+            Run();
+        }
+        static void UseQueueIo()
+        {
+            Console.WriteLine("[SERVER] Will be Initializing Queues");
+            usePipeIO = false;
+            useStdIO = false;
+            useQueueIO = true;
+            Run();
+        }
 
-            HostWrapper myHost = new HostWrapper(myExeLoc, useStdIO, ProcessControl);
+        static void Run()
+        {
+            string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
+            //myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\engines\\stockfish\\stockfish_5_32bit.exe";
+
+            HostWrapper myHost;
+            if (useQueueIO)
+            {
+                string clientID = Guid.NewGuid().ToString();
+                string typeID = "TestProcess.PrintSort";
+                List<string> routes = new List<string>();
+                routes.Add(clientID + ".workUpdate." + typeID);
+                routes.Add(clientID + ".workComplete." + typeID);
+                queueClient = new QueueingModel("myExch", "topic", "ServerQueue", routes, "localhost", "guest", "guest", 5672);
+                myHost = new HostWrapper(myExeLoc, useStdIO, useQueueIO, usePipeIO,
+                    "myExch", "localhost", "5672", "guest", "guest", typeID,
+                    ProcessControl);
+            }
+            else
+                myHost = new HostWrapper(myExeLoc, useStdIO, ProcessControl);
 
             myHost.Start();
 
             //myHost.WriteToClient("SYNC");
-            myHost.WriteToClient("uci");
+            //myHost.WriteToClient("uci");
 
             string localBuffer = "";
             Task<string> readTask = myHost.ReadConsoleAsync();
@@ -37,8 +90,8 @@ namespace Server
                     myHost.WriteToClient(localBuffer);
                     readTask = myHost.ReadConsoleAsync();
                 }
-            } while (myHost.CheckProgress() != HostWrapper.IsEnding );
-            myHost.WriteToClient("quit");
+            } while (myHost.CheckProgress() != HostWrapper.IsEnding);
+            //myHost.WriteToClient("quit");
 
             myHost.Cleanup();
             Console.WriteLine("[SERVER] Client quit. Server terminating.");
@@ -50,9 +103,9 @@ namespace Server
             while (thisHost.incoming.Count > 0)
             {
                 string s = thisHost.incoming[0];
-                Console.WriteLine(" From Client: <"+s+">");
+                Console.WriteLine(" From Client: <" + s + ">");
                 thisHost.incoming.RemoveAt(0);
-                if (s.StartsWith("uciok"))
+                if (s == null || s.StartsWith("uciok"))
                     return HostWrapper.IsEnding;
             }
             return HostWrapper.IsRunning;
