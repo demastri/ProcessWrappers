@@ -8,7 +8,6 @@ using System.IO;
 using System.IO.Pipes;
 using System.Diagnostics;
 
-using QueueCommon;
 using ProcessWrappers;
 
 namespace Server
@@ -19,7 +18,6 @@ namespace Server
         static bool useStdIO = false;
         static bool useQueueIO = false;
 
-        static QueueingModel queueClient = null;
 
         static void Main(string[] args)
         {
@@ -57,19 +55,17 @@ namespace Server
         static void Run()
         {
             string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
+            myExeLoc = "D:\\Projects\\Workspaces\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
             //myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\engines\\stockfish\\stockfish_5_32bit.exe";
 
             HostWrapper myHost;
+            string clientID = Guid.NewGuid().ToString();
+            string typeID = "TestProcess.PrintSort";
+
             if (useQueueIO)
             {
-                string clientID = Guid.NewGuid().ToString();
-                string typeID = "TestProcess.PrintSort";
-                List<string> routes = new List<string>();
-                routes.Add(clientID + ".workUpdate." + typeID);
-                routes.Add(clientID + ".workComplete." + typeID);
-                queueClient = new QueueingModel("myExch", "topic", "ServerQueue", routes, "localhost", "guest", "guest", 5672);
                 myHost = new HostWrapper(myExeLoc, useStdIO, useQueueIO, usePipeIO,
-                    "myExch", "localhost", "5672", "guest", "guest", typeID,
+                    "myExch", "localhost", "5672", "guest", "guest", typeID, clientID,
                     ProcessControl);
             }
             else

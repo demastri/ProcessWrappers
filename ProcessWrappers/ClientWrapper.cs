@@ -49,6 +49,7 @@ namespace ProcessWrappers
             useStdIO = false;
             usePipeIO = false;
             useQueueIO = false;
+            hostID = routeID = "";
 
             if (args.Length == 0)
                 useStdIO = true;
@@ -84,6 +85,8 @@ namespace ProcessWrappers
         string inPipeID;
         string outPipeID;
         string queueParams;
+        string hostID;
+        string routeID;
         List<string> queueMsgs;
 
         #endregion
@@ -112,14 +115,16 @@ namespace ProcessWrappers
             List<string> routes = new List<string>();
             routes.Add("*.workRequest." + typeID);
             routes.Add("*.workerCommand." + typeID);
+            hostID = param[6];
+            routeID = hostID+".workComplete."+typeID;
+
             queueClient = new QueueingModel(param[0], "topic", typeID, routes, param[1], param[3], param[4], Convert.ToInt32(param[2]));
             queueClient.SetListenerCallback(HandlePosts);
         }
-
         private void HandlePosts(byte[] msg, string routeKey)
         {
-            queueMsgs.Add(System.Text.Encoding.Default.GetString(msg));
-            //ClientMessage("[CLIENT] send message rec'd from queue to object");
+            string thisMsg = System.Text.Encoding.Default.GetString(msg);
+            queueMsgs.Add(thisMsg);
         }
         private void CreateStreamOnPipes()
         {
@@ -161,7 +166,7 @@ namespace ProcessWrappers
         #region IO
         public void ClientMessage(string msg)
         {
-            ClientMessage(msg, "");
+            ClientMessage(msg, routeID);
         }
         public void ClientMessage(string msg, string route)
         {

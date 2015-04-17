@@ -8,6 +8,8 @@ using System.IO;
 using System.IO.Pipes;
 using System.Diagnostics;
 
+using QueueCommon;
+
 namespace ProcessWrappers
 {
     public class HostWrapper
@@ -55,7 +57,7 @@ namespace ProcessWrappers
         bool logging;
 
         public HostWrapper(string processLoc, bool stdio, bool queueio, bool pipeio,
-                        string exch, string host, string port, string uid, string pwd, string typeid, ProcessControlHandler datasink)
+                        string exch, string host, string port, string uid, string pwd, string typeid, string clientID, ProcessControlHandler datasink)
         {
             qexch = exch;
             qhost = host;
@@ -63,6 +65,7 @@ namespace ProcessWrappers
             quid = uid;
             qpwd = pwd;
             qtypeid = typeid;
+            qclientid = clientID;
 
             logging = false;
             outgoing = new List<string>();
@@ -77,7 +80,7 @@ namespace ProcessWrappers
         }
         public HostWrapper(string processLoc, bool stdio, ProcessControlHandler datasink)
         {
-            qexch = qhost = qport = quid = qpwd = qtypeid = "";
+            qexch = qhost = qport = quid = qpwd = qtypeid = qclientid = "";
 
             logging = false;
             outgoing = new List<string>();
@@ -92,7 +95,7 @@ namespace ProcessWrappers
         }
         public HostWrapper(string processLoc, bool stdio, ProcessControlHandler datasink, bool setLog)
         {
-            qexch = qhost = qport = quid = qpwd = qtypeid = "";
+            qexch = qhost = qport = quid = qpwd = qtypeid = qclientid = "";
 
             logging = setLog;
             outgoing = new List<string>();
@@ -124,12 +127,15 @@ namespace ProcessWrappers
         AnonymousPipeServerStream pipeServerIn;
         StreamReader StreamIn;
 
+        public QueueingModel queueClient;
+
         string qexch;
         string qport;
         string qhost;
         string quid;
         string qpwd;
         string qtypeid;
+        string qclientid;
 
 
         string processLocation = "";
@@ -150,7 +156,14 @@ namespace ProcessWrappers
             else if (useStdIO)
                 thisIO = new StdIOModel(this);
             else if (useQueueIO)
+            {
                 thisIO = new QueueIOModel(this);
+
+                List<string> routes = new List<string>();
+                routes.Add(qclientid + ".workUpdate." + qtypeid);
+                routes.Add(qclientid + ".workComplete." + qtypeid);
+                queueClient = new QueueingModel(qexch, "topic", "ServerQueue", routes, qhost, quid, qpwd, Convert.ToInt32(qport));
+            }
             else
                 thisIO = null;
 
@@ -253,9 +266,16 @@ namespace ProcessWrappers
                 while (outgoing.Count > 0)
                 {
                     WriteLog("Outgoing -> " + outgoing[0]);
-                    StreamOut.WriteLine(outgoing[0]);
+                    if (useQueueIO)
+                    {
+                        queueClient.PostMessage(outgoing[0], qclientid + ".workRequest." + qtypeid);
+                    }
+                    else
+                    {
+                        StreamOut.WriteLine(outgoing[0]);
 
-                    StreamOut.Flush();
+                        StreamOut.Flush();
+                    }
                     outgoing.RemoveAt(0);
                 }
             }
@@ -274,6 +294,14 @@ namespace ProcessWrappers
                 {
                     incoming.Add(pipeReaderTask.Result);
                     pipeReaderTask = null;
+                }
+            }
+            if (useQueueIO)  // StdIO is handled through BeginOutputReadline/OutputDataReceived
+            {
+                while (!queueClient.QueueEmpty())
+                {
+                    string s = queueClient.ReadMessageAsString();
+                    incoming.Add(s);
                 }
             }
         }
@@ -361,7 +389,7 @@ namespace ProcessWrappers
                 me.clientProcess.StartInfo.RedirectStandardInput = true;
                 me.clientProcess.StartInfo.RedirectStandardOutput = true;
                 me.clientProcess.StartInfo.RedirectStandardError = true;
-                me.clientProcess.StartInfo.CreateNoWindow = true;
+                me.clientProcess.StartInfo.CreateNoWindow = false;
                 me.clientProcess.OutputDataReceived += me.clientProcess_OutputDataReceived;
             }
             public void StartProcess()
@@ -417,10 +445,11 @@ namespace ProcessWrappers
         {
             HostWrapper me;
             string paramString = "";
+
             public QueueIOModel(HostWrapper hw)
             {
                 me = hw;
-                paramString = me.qexch + "|" + me.qhost + "|" + me.qport + "|" + me.quid + "|" + me.qpwd + "|" + me.qtypeid;
+                paramString = me.qexch + "|" + me.qhost + "|" + me.qport + "|" + me.quid + "|" + me.qpwd + "|" + me.qtypeid + "|" + me.qclientid;
             }
             public void InitComms()
             {
