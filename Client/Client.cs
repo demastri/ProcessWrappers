@@ -16,6 +16,8 @@ namespace Client
             ClientWrapper myClient = new ClientWrapper(args);
 
             myClient.Start();
+            if (myClient.useQueueIO)
+                myClient.UpdatePostRoute("workRequest", "workComplete");
 
             string temp;    // Display the read text to the console 
             bool done = false;

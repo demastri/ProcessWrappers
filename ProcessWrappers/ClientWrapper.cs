@@ -49,7 +49,8 @@ namespace ProcessWrappers
             useStdIO = false;
             usePipeIO = false;
             useQueueIO = false;
-            hostID = routeID = "";
+            hostID = "";
+            postRoutes = new List<string>();
 
             if (args.Length == 0)
                 useStdIO = true;
@@ -79,14 +80,15 @@ namespace ProcessWrappers
         PipeStream pipeClientOut;
         StreamReader StreamIn;
         StreamWriter StreamOut;
-        bool useStdIO;
-        bool useQueueIO;
-        bool usePipeIO;
+        public bool useStdIO;
+        public bool useQueueIO;
+        public bool usePipeIO;
         string inPipeID;
         string outPipeID;
         string queueParams;
         string hostID;
-        string routeID;
+        public List<string> postRoutes;
+        public List<string> listenRoutes;
         List<string> queueMsgs;
 
         #endregion
@@ -111,15 +113,25 @@ namespace ProcessWrappers
         {
             queueMsgs = new List<string>();
             string[] param = queueParams.Split('|');
-            string typeID = param[5];
-            List<string> routes = new List<string>();
-            routes.Add("*.workRequest." + typeID);
-            routes.Add("*.workerCommand." + typeID);
-            hostID = param[6];
-            routeID = hostID+".workComplete."+typeID;
+            listenRoutes = new List<string>();
+            for (int i = 5; i < param.Count(); i++)
+                listenRoutes.Add(param[i]);
+            // actual client needs to inform us about postRoutes...
+            postRoutes.Add("ClientWrapper");
 
-            queueClient = new QueueingModel(param[0], "topic", typeID, routes, param[1], param[3], param[4], Convert.ToInt32(param[2]));
+            queueClient = new QueueingModel(param[0], "topic", "clientQueue", listenRoutes, param[1], param[3], param[4], Convert.ToInt32(param[2]));
             queueClient.SetListenerCallback(HandlePosts);
+        }
+        public void UpdatePostRoute( string src, string dest ) 
+        {
+            postRoutes.Clear();
+            foreach (string s in listenRoutes)
+            {
+                if (s.Contains(src))
+                {
+                    postRoutes.Add(s.Replace(src, dest));
+                }
+            }
         }
         private void HandlePosts(byte[] msg, string routeKey)
         {
@@ -166,7 +178,22 @@ namespace ProcessWrappers
         #region IO
         public void ClientMessage(string msg)
         {
-            ClientMessage(msg, routeID);
+            if (useQueueIO)
+            {
+                int sep = msg.IndexOf('#');
+                int q = 0;
+                if (sep > 0 && Int32.TryParse(msg.Substring(0, sep), out q))
+                {
+                    msg = msg.Substring(sep + 1);
+                }
+                else
+                {
+                    q = 0;
+                }
+                queueClient.PostMessage(msg, postRoutes[q]);
+            }
+            else
+            ClientMessage(msg, "");
         }
         public void ClientMessage(string msg, string route)
         {
