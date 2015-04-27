@@ -43,6 +43,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ClientWrapper.cs" />
+    <Compile Include="ConnectionDetail.cs" />
     <Compile Include="HostWrapper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

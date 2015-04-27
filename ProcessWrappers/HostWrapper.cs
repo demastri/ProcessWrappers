@@ -58,18 +58,14 @@ namespace ProcessWrappers
         string logLocation = "C:\\HostWrapper\\logfile.txt";
         bool logging;
 
-        public HostWrapper(string processLoc, IOType thisIOType,
-                        string exch, string host, string port, string uid, string pwd,
-                        List<string> postToRoutes, List<string> readFromRoutes,
-                        ProcessControlHandler datasink)
+        public HostWrapper(string processLoc, IOType thisIOType, ConnectionDetail connDetail, List<string> postKeys, ProcessControlHandler datasink)
         {
-            qexch = exch;
-            qhost = host;
-            qport = port;
-            quid = uid;
-            qpwd = pwd;
-            listenRoutes = readFromRoutes;
-            postRoutes = postToRoutes;
+            // the keys in ConnDetail are the ones this host will listen to (and they're the ones the worker should post to)
+            // the keys in post keys are where this host will post (and a flavor of what the worker should listen to)
+            thisConnectionDetail = connDetail.Copy();
+            hostPostKeys = new List<string>();
+            foreach (string s in postKeys)
+                hostPostKeys.Add(s);
 
             logging = false;
             outgoing = new List<string>();
@@ -81,9 +77,8 @@ namespace ProcessWrappers
         }
         public HostWrapper(string processLoc, IOType thisIOType, ProcessControlHandler datasink)
         {
-            qexch = qhost = qport = quid = qpwd = "";
-            listenRoutes = new List<string>();
-            postRoutes = new List<string>();
+            thisConnectionDetail = null;
+            hostPostKeys = new List<string>();
 
             logging = false;
             outgoing = new List<string>();
@@ -95,9 +90,8 @@ namespace ProcessWrappers
         }
         public HostWrapper(string processLoc, IOType thisIOType, ProcessControlHandler datasink, bool setLog)
         {
-            qexch = qhost = qport = quid = qpwd = "";
-            listenRoutes = new List<string>();
-            postRoutes = new List<string>();
+            thisConnectionDetail = null;
+            hostPostKeys = new List<string>();
 
             logging = setLog;
             outgoing = new List<string>();
@@ -120,13 +114,8 @@ namespace ProcessWrappers
 
         IOModel thisIO;
 
-        string qexch;
-        string qport;
-        string qhost;
-        string quid;
-        string qpwd;
-        List<string> postRoutes;
-        List<string> listenRoutes;
+        ConnectionDetail thisConnectionDetail;
+        public List<string> hostPostKeys;
 
         string processLocation = "";
         IOType useIOType;
@@ -480,16 +469,23 @@ namespace ProcessWrappers
             // (and mirrored on the client side...) if we're going to this trouble...
             public QueueIOModel(HostWrapper hw)
             {
+                ConnectionDetail cd = hw.thisConnectionDetail;
                 postRoutes = new List<string>();
-                paramString = hw.qexch + "|" + hw.qhost + "|" + hw.qport + "|" + hw.quid + "|" + hw.qpwd;
-                foreach (string s in hw.postRoutes)
+                paramString = cd.exchName + "|" + cd.host + "|" + cd.port + "|" + cd.user + "|" + cd.pass;
+                foreach (string s in hw.hostPostKeys )
                 {
                     paramString += "|" + s;
                     postRoutes.Add(s);
                 }
+                paramString += "|#|";
+                foreach (string s in cd.routeKeys)
+                {
+                    paramString += "|" + s;
+                }
 
                 List<string> routes = new List<string>();
-                queueClient = new QueueingModel(hw.qexch, "topic", "ServerQueue", hw.listenRoutes, hw.qhost, hw.quid, hw.qpwd, Convert.ToInt32(hw.qport));
+                QueueCommon.ConnectionDetail listenDetail = cd.UpdateQueueDetail("ServerQueue", cd.routeKeys);
+                queueClient = new QueueingModel(listenDetail);
             }
             public void InitProcess(string procName)
             {

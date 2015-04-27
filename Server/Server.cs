@@ -9,6 +9,7 @@ using System.IO.Pipes;
 using System.Diagnostics;
 
 using ProcessWrappers;
+using QueueCommon;
 
 namespace Server
 {
@@ -61,9 +62,9 @@ namespace Server
                 listenRoutes.Add(clientID + ".workComplete." + typeID);
                 postRoutes.Add(clientID + ".workRequest." + typeID);
 
-                myHost = new HostWrapper(myExeLoc, thisPass,
-                    "myExch", "localhost", "5672", "guest", "guest", postRoutes, listenRoutes,
-                    ProcessControl);
+                ConnectionDetail thisConn = new ConnectionDetail("localhost", 5672, "myExch", "direct", clientID, listenRoutes, "guest", "guest");
+
+                myHost = new HostWrapper("SomeLocation", HostWrapper.IOType.QUEUES, thisConn, postRoutes, ProcessControl);
             }
             else
                 myHost = new HostWrapper(myExeLoc, thisPass, ProcessControl);
