@@ -9,13 +9,14 @@ using System.IO.Pipes;
 using System.Diagnostics;
 
 using ProcessWrappers;
+using ProcessWrappers.IOModels;
 using QueueCommon;
 
 namespace Server
 {
     class Server
     {
-        static HostWrapper.IOType thisPass;
+        static IOType thisPass;
 
         static void Main(string[] args)
         {
@@ -28,31 +29,31 @@ namespace Server
         static void UseStdIo()
         {
             Console.WriteLine("[SERVER] Initializing StdIO");
-            thisPass = HostWrapper.IOType.StdIO;
+            thisPass = IOType.StdIO;
             Run();
         }
         static void UsePipesIo()
         {
             Console.WriteLine("[SERVER] Initializing Pipes");
-            thisPass = HostWrapper.IOType.PIPES;
+            thisPass = IOType.PIPES;
             Run();
         }
         static void UseQueueIo()
         {
             Console.WriteLine("[SERVER] Initializing Queues");
-            thisPass = HostWrapper.IOType.QUEUES;
+            thisPass = IOType.QUEUES;
             Run();
         }
 
         static void Run()
         {
-            string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
-            //myExeLoc = "D:\\Projects\\Workspaces\\BBRepos\\Chess\\PipesCommsExamples\\Client\\bin\\Debug\\Client.exe";
+            string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\ProcessWrappers\\Client\\bin\\Debug\\Client.exe";
+            myExeLoc = "D:\\Projects\\Workspaces\\BBRepos\\ProcessWrappers\\Client\\bin\\Debug\\Client.exe";
             //myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\engines\\stockfish\\stockfish_5_32bit.exe";
 
             HostWrapper myHost;
 
-            if (thisPass == HostWrapper.IOType.QUEUES)
+            if (thisPass == IOType.QUEUES)
             {
                 string clientID = Guid.NewGuid().ToString();
                 string typeID = "TestProcess.PrintSort";
@@ -62,9 +63,9 @@ namespace Server
                 listenRoutes.Add(clientID + ".workComplete." + typeID);
                 postRoutes.Add(clientID + ".workRequest." + typeID);
 
-                ConnectionDetail thisConn = new ConnectionDetail("localhost", 5672, "myExch", "direct", clientID, listenRoutes, "guest", "guest");
+                ConnectionDetail thisConn = new ConnectionDetail("localhost", 5672, "myExch", "topic", clientID, listenRoutes, "guest", "guest");
 
-                myHost = new HostWrapper("SomeLocation", HostWrapper.IOType.QUEUES, thisConn, postRoutes, ProcessControl);
+                myHost = new HostWrapper(myExeLoc, IOType.QUEUES, thisConn, postRoutes, ProcessControl);
             }
             else
                 myHost = new HostWrapper(myExeLoc, thisPass, ProcessControl);
@@ -87,7 +88,7 @@ namespace Server
             } while (myHost.CheckProgress() != HostWrapper.IsEnding);
             //myHost.WriteToClient("quit");
 
-            if (thisPass == HostWrapper.IOType.PIPES)
+            if (thisPass == IOType.PIPES)
                 myHost.TestPipeMode();
 
             myHost.Cleanup();

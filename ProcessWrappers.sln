@@ -1,11 +1,11 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio 2012
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProcessWrappers", "..\Chess\PipesCommsExamples\ProcessWrappers\ProcessWrappers.csproj", "{2009788C-625D-45F7-AF04-DC21EC78D0E5}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ProcessWrappers", "ProcessWrappers\ProcessWrappers.csproj", "{2009788C-625D-45F7-AF04-DC21EC78D0E5}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Client", "..\Chess\PipesCommsExamples\Client\Client.csproj", "{ADC9B49F-4D36-44D4-AD53-FC41231450CD}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Client", "Client\Client.csproj", "{ADC9B49F-4D36-44D4-AD53-FC41231450CD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Server", "..\Chess\PipesCommsExamples\Server\Server.csproj", "{3552091B-1726-4640-9197-5F676FA6EE01}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Server", "Server\Server.csproj", "{3552091B-1726-4640-9197-5F676FA6EE01}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

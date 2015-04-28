@@ -31,7 +31,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="QueueCommon">
-      <HintPath>..\..\..\QueueMgt\QueueCommon\bin\Debug\QueueCommon.dll</HintPath>
+      <HintPath>..\..\QueueMgt\QueueCommon\bin\Debug\QueueCommon.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
@@ -43,9 +43,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="ClientWrapper.cs" />
-    <Compile Include="ConnectionDetail.cs" />
     <Compile Include="HostWrapper.cs" />
+    <Compile Include="IOModels\IOModel.cs" />
+    <Compile Include="IOModels\PipeIOModel.cs" />
+    <Compile Include="IOModels\QueueIOModel.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="IOModels\StdIOModel.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

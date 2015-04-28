@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 using System.IO;
 using ProcessWrappers;
+using ProcessWrappers.IOModels;
 
 namespace Client
 {
@@ -16,7 +17,7 @@ namespace Client
             ClientWrapper myClient = new ClientWrapper(args);
 
             myClient.Start();
-            if (myClient.useQueueIO)
+            if (myClient.useIOType == IOType.QUEUES)
                 myClient.UpdatePostRoute("workRequest", "workComplete");
 
             string temp;    // Display the read text to the console 

@@ -9,6 +9,7 @@ using System.IO.Pipes;
 using System.Diagnostics;
 
 using QueueCommon;
+using ProcessWrappers.IOModels;
 
 namespace ProcessWrappers
 {
@@ -46,7 +47,6 @@ namespace ProcessWrappers
         ///        return HostWrapper.IsRunning;
         ///     }
 
-        public enum IOType { PIPES = 0, StdIO = 1, QUEUES = 2 };
 
         public List<string> outgoing;
         public List<string> incoming;
@@ -55,8 +55,8 @@ namespace ProcessWrappers
         public const int IsEnding = 1;
         public const int IsRunning = 2;
 
-        string logLocation = "C:\\HostWrapper\\logfile.txt";
-        bool logging;
+        internal ConnectionDetail thisConnectionDetail;
+        public List<string> hostPostKeys;
 
         public HostWrapper(string processLoc, IOType thisIOType, ConnectionDetail connDetail, List<string> postKeys, ProcessControlHandler datasink)
         {
@@ -114,8 +114,8 @@ namespace ProcessWrappers
 
         IOModel thisIO;
 
-        ConnectionDetail thisConnectionDetail;
-        public List<string> hostPostKeys;
+        string logLocation = "C:\\HostWrapper\\logfile.txt";
+        bool logging;
 
         string processLocation = "";
         IOType useIOType;
@@ -127,7 +127,7 @@ namespace ProcessWrappers
 
         private void InitIOModel()
         {
-            thisIO = IOFactory(useIOType, this);
+            thisIO = IOModelHelper.IOModelFactory(useIOType, this, clientProcess_OutputDataReceived);
         }
         public void Start()
         {
@@ -242,312 +242,5 @@ namespace ProcessWrappers
         }
         #endregion
 
-        #region IOModel abstraction
-        public interface IOModel
-        {
-            void InitProcess(string procName);
-            void InitComms();
-            void StartProcess();
-            void ConnectOutputComms();
-            bool CheckRead();
-            string ReadResult();
-            void Write(string msg);
-            void Cleanup();
-        }
-
-        public static IOModel IOFactory(HostWrapper.IOType ioType, HostWrapper hw)
-        {
-            switch (ioType)
-            {
-                case IOType.StdIO: return new StdIOModel(hw.clientProcess_OutputDataReceived);
-                case IOType.PIPES: return new PipeIOModel();
-                case IOType.QUEUES: return new QueueIOModel(hw);
-            }
-            return null;
-        }
-
-        public class StdIOModel : IOModel
-        {
-            Process clientProcess;
-            StreamWriter StreamOut;
-            DataReceivedEventHandler thisHandler;
-
-            public StdIOModel(DataReceivedEventHandler handler)
-            {
-                thisHandler = handler;
-            }
-            public void InitProcess(string procName)
-            {
-                clientProcess = new Process();
-                clientProcess.StartInfo.FileName = procName;
-            }
-            public void InitComms()
-            {
-                clientProcess.StartInfo.Arguments = "Stdio ";
-                clientProcess.StartInfo.UseShellExecute = false;
-
-                clientProcess.StartInfo.RedirectStandardInput = true;
-                clientProcess.StartInfo.RedirectStandardOutput = true;
-                clientProcess.StartInfo.RedirectStandardError = true;
-                clientProcess.StartInfo.CreateNoWindow = false;
-                clientProcess.OutputDataReceived += thisHandler;
-            }
-            public void StartProcess()
-            {
-                clientProcess.Start();
-                clientProcess.BeginOutputReadLine();
-            }
-            public void ConnectOutputComms()
-            {
-                StreamOut = clientProcess.StandardInput;
-            }
-            public bool CheckRead()
-            {
-                return false;   // noop
-            }
-            public string ReadResult()
-            {
-                return null;    // noop
-            }
-            public void Write(string msg)
-            {
-                StreamOut.WriteLine(msg);
-                StreamOut.Flush();
-            }
-            public void Cleanup()
-            {
-                if (StreamOut != null)
-                    StreamOut.Dispose();
-
-                if (clientProcess != null)
-                {
-                    try
-                    {
-                        clientProcess.Kill();
-                        clientProcess.WaitForExit();
-                        clientProcess.Close();
-                    }
-                    catch (Exception e) { }
-                }
-            }
-        }
-        public class PipeIOModel : IOModel
-        {
-            Process clientProcess;
-
-            StreamWriter StreamOut;
-            StreamReader StreamIn;
-
-            HostWrapper me;
-            Task<string> pipeReaderTask;
-
-            AnonymousPipeServerStream pipeServerIn;
-            AnonymousPipeServerStream pipeServerOut;
-
-            public PipeIOModel()
-            {
-                pipeReaderTask = null;
-            }
-            public void InitProcess(string procName)
-            {
-                clientProcess = new Process();
-                clientProcess.StartInfo.FileName = procName;
-            }
-            public void InitComms()
-            {
-                OpenPipes();
-                clientProcess.StartInfo.Arguments = "Pipes " + pipeServerOut.GetClientHandleAsString() + " " + pipeServerIn.GetClientHandleAsString();
-                clientProcess.StartInfo.UseShellExecute = false;
-            }
-            public void StartProcess()
-            {
-                clientProcess.Start();
-                pipeServerOut.DisposeLocalCopyOfClientHandle();
-                pipeServerIn.DisposeLocalCopyOfClientHandle();
-            }
-            public void ConnectOutputComms()
-            {
-                // Read user input and send that to the client process. 
-                StreamOut = new StreamWriter(pipeServerOut);
-                StreamOut.AutoFlush = true;
-
-                StreamIn = new StreamReader(pipeServerIn);
-            }
-            private void OpenPipes()
-            {
-                pipeServerOut =
-                   new AnonymousPipeServerStream(PipeDirection.Out,
-                   HandleInheritability.Inheritable);
-
-                pipeServerIn =
-                   new AnonymousPipeServerStream(PipeDirection.In,
-                   HandleInheritability.Inheritable);
-            }
-            public bool CheckRead()
-            {
-                if (pipeReaderTask == null)
-                    pipeReaderTask = ReadStreamAsync(StreamIn);
-                return pipeReaderTask.IsCompleted;
-            }
-            private Task<string> ReadStreamAsync(StreamReader sr)
-            {
-                return Task.Run(() => sr.ReadLine());
-            }
-
-            public string ReadResult()
-            {
-                if (pipeReaderTask != null && pipeReaderTask.IsCompleted)
-                {
-                    string s = pipeReaderTask.Result;
-                    pipeReaderTask = null;
-                    return s;
-                }
-                return null;
-            }
-            public void Write(string msg)
-            {
-                StreamOut.WriteLine(msg);
-                StreamOut.Flush();
-            }
-            public void Cleanup()
-            {
-                if (StreamOut != null)
-                    StreamOut.Dispose();
-                if (StreamIn != null)
-                    StreamIn.Dispose();
-
-                if (pipeServerOut != null)
-                    pipeServerOut.Dispose();
-                if (pipeServerIn != null)
-                    pipeServerIn.Dispose();
-
-                if (clientProcess != null)
-                {
-                    try
-                    {
-                        clientProcess.Kill();
-                        clientProcess.WaitForExit();
-                        clientProcess.Close();
-                    }
-                    catch (Exception e) { }
-                }
-            }
-
-
-            public void TestMe()
-            {
-                try
-                {
-                    if (pipeServerIn != null)
-                    {
-                        Console.WriteLine("[SERVER] Setting ReadMode to \"Message\".");
-                        pipeServerIn.ReadMode = PipeTransmissionMode.Message;
-                    }
-                }
-                catch (NotSupportedException e)
-                {
-                    Console.WriteLine("[SERVER] Execption:\n    " + e.Message);
-                }
-
-                if (pipeServerIn != null)
-                    Console.WriteLine("[SERVER] Using pipe io...Current TransmissionMode: " + pipeServerIn.TransmissionMode.ToString() + ".");
-                else
-                    Console.WriteLine("[SERVER] Using stdio...");
-            }
-        }
-        public class QueueIOModel : IOModel
-        {
-            Process clientProcess;
-            public QueueingModel queueClient;
-            List<string> postRoutes;
-
-            string paramString = "";
-
-            // this really should only tell the client what it should be listening to, right.  
-            // TypeID and clientID are pretty app-specific
-            // ### and most of the actual IO should be deferred to this class, 
-            // (and mirrored on the client side...) if we're going to this trouble...
-            public QueueIOModel(HostWrapper hw)
-            {
-                ConnectionDetail cd = hw.thisConnectionDetail;
-                postRoutes = new List<string>();
-                paramString = cd.exchName + "|" + cd.host + "|" + cd.port + "|" + cd.user + "|" + cd.pass;
-                foreach (string s in hw.hostPostKeys )
-                {
-                    paramString += "|" + s;
-                    postRoutes.Add(s);
-                }
-                paramString += "|#|";
-                foreach (string s in cd.routeKeys)
-                {
-                    paramString += "|" + s;
-                }
-
-                List<string> routes = new List<string>();
-                QueueCommon.ConnectionDetail listenDetail = cd.UpdateQueueDetail("ServerQueue", cd.routeKeys);
-                queueClient = new QueueingModel(listenDetail);
-            }
-            public void InitProcess(string procName)
-            {
-                clientProcess = new Process();
-                clientProcess.StartInfo.FileName = procName;
-            }
-            public void InitComms()
-            {
-                // need to be able to init the queue connection detail for the process here as arguments
-                // exch, port, uid, pwd, typeid
-                clientProcess.StartInfo.Arguments = "Queue " + paramString;
-                clientProcess.StartInfo.UseShellExecute = false;
-            }
-            public void StartProcess()
-            {
-                // there is no other activity...
-                clientProcess.Start();
-            }
-            public void ConnectOutputComms()
-            {
-                // there is no other activity...
-            }
-
-            public bool CheckRead()
-            {
-                return !queueClient.QueueEmpty();
-            }
-            public string ReadResult()
-            {
-                if (CheckRead())
-                    return queueClient.ReadMessageAsString();
-                return null;
-            }
-            public void Write(string msg)
-            {
-                int sep = msg.IndexOf('#');
-                int q = 0;
-                if (sep > 0 && Int32.TryParse(msg.Substring(0, sep), out q))
-                {
-                    msg = msg.Substring(sep + 1);
-                }
-                else
-                {
-                    q = 0;
-                }
-                queueClient.PostMessage(msg, postRoutes[q]);
-            }
-            public void Cleanup()
-            {
-                queueClient.CloseConnections();
-                if (clientProcess != null)
-                {
-                    try
-                    {
-                        clientProcess.Kill();
-                        clientProcess.WaitForExit();
-                        clientProcess.Close();
-                    }
-                    catch (Exception e) { }
-                }
-            }
-        }
-        #endregion
     }
 }
