@@ -16,10 +16,12 @@ namespace Server
 {
     class Server
     {
+        static ProcessWrapper myHost;
         static IOType thisPass;
 
         static void Main(string[] args)
         {
+            
             UseStdIo();
             UsePipesIo();
             UseQueueIo();
@@ -47,11 +49,47 @@ namespace Server
 
         static void Run()
         {
+            // this is a simple cycle - reads from host and posts to the process
+            StartClient();
+
+            Task<string> readTask = ReadConsoleAsync();
+            do
+            {
+                if (readTask.IsCompleted)
+                {
+                    string localBuffer = readTask.Result;
+                    myHost.SendProcessMessage(localBuffer);  // simplest task possible, echo console data to the worker process
+                    readTask = ReadConsoleAsync();
+                }
+                System.Threading.Thread.Sleep(250);
+            } while (myHost.CheckProgress() == ProcessWrapper.ProcesssStatus.Running);
+
+            myHost.Cleanup();
+            Console.WriteLine("[SERVER] Client quit. Server terminating.");
+        }
+
+        static public void StartClient() 
+        {
             string myExeLoc = "C:\\Projects\\JPD\\BBRepos\\ProcessWrappers\\Client\\bin\\Debug\\Client.exe";
-            myExeLoc = "D:\\Projects\\Workspaces\\BBRepos\\ProcessWrappers\\Client\\bin\\Debug\\Client.exe";
+            //myExeLoc = "D:\\Projects\\Workspaces\\BBRepos\\ProcessWrappers\\Client\\bin\\Debug\\Client.exe";
             //myExeLoc = "C:\\Projects\\JPD\\BBRepos\\Chess\\engines\\stockfish\\stockfish_5_32bit.exe";
 
-            HostWrapper myHost;
+            myHost = new ProcessWrapper();
+            string modelParams = IOModelHelper.IOTypeParam[thisPass];
+
+            switch (thisPass)
+            {
+                case IOType.PIPES:
+                    modelParams += " ";
+                    break;
+                case IOType.QUEUES:
+                    modelParams += " ";
+                    break;
+                case IOType.StdIO:
+                    modelParams += " ";
+                    break;
+            }
+            modelParams = "";
 
             if (thisPass == IOType.QUEUES)
             {
@@ -62,46 +100,28 @@ namespace Server
                 listenRoutes.Add(clientID + ".workUpdate." + typeID);
                 listenRoutes.Add(clientID + ".workComplete." + typeID);
                 postRoutes.Add(clientID + ".workRequest." + typeID);
-
                 ConnectionDetail thisConn = new ConnectionDetail("localhost", 5672, "myExch", "topic", clientID, listenRoutes, "guest", "guest");
 
-                myHost = new HostWrapper(myExeLoc, IOType.QUEUES, thisConn, postRoutes, ProcessControl);
+                modelParams = "myExch|localhost|5672|guest|guest|";
+                modelParams += clientID + ".workUpdate." + typeID + "|";
+                modelParams += clientID + ".workComplete." + typeID + "|#|";
+                modelParams += clientID + ".workRequest." + typeID;
             }
-            else
-                myHost = new HostWrapper(myExeLoc, thisPass, ProcessControl);
-
-            myHost.Start();
-
-            //myHost.WriteToClient("SYNC");
-            //myHost.WriteToClient("uci");
-
-            Task<string> readTask = myHost.ReadConsoleAsync();
-            do
-            {
-                if (readTask.IsCompleted)
-                {
-                    string localBuffer = readTask.Result;
-                    myHost.WriteToClient(localBuffer);  // simplest task possible, echo console data to the worker process
-                    readTask = myHost.ReadConsoleAsync();
-                }
-                System.Threading.Thread.Sleep(250);
-            } while (myHost.CheckProgress() != HostWrapper.IsEnding);
-            //myHost.WriteToClient("quit");
-
-            if (thisPass == IOType.PIPES)
-                myHost.TestPipeMode();
-
-            myHost.Cleanup();
-            Console.WriteLine("[SERVER] Client quit. Server terminating.");
+            myHost.Init(myExeLoc, thisPass, modelParams, ProcessControl);
         }
 
-        public static int ProcessControl(string s)
+        // ok -> here's the process return string - looking for a QUIT to change the status
+        public static void ProcessControl(string s)
         {
             Console.WriteLine(" From Client: <" + s + ">");
             if (s == null || s.StartsWith("uciok") || s.StartsWith("QUIT"))
-                return HostWrapper.IsEnding;
-            return HostWrapper.IsRunning;
+                myHost.UpdateStatus(ProcessWrapper.ProcesssStatus.Ending);
+            else
+                myHost.UpdateStatus(ProcessWrapper.ProcesssStatus.Running);
         }
-
+        public static Task<string> ReadConsoleAsync()
+        {
+            return Task.Run(() => Console.ReadLine());
+        }
     }
 }

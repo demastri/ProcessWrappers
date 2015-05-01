@@ -18,8 +18,8 @@ namespace ProcessWrappers.IOModels
 
         StreamWriter StreamOut;
         StreamReader StreamIn;
+        ProcessWrapper.ProcessControlHandler thisHandler;
 
-        HostWrapper me;
         Task<string> pipeReaderTask;
 
         AnonymousPipeServerStream pipeServerIn;
@@ -32,12 +32,27 @@ namespace ProcessWrappers.IOModels
         {
             inPipeID = outPipeID = null;
             pipeReaderTask = null;
+            thisHandler = null;
+
         }
         public PipeIOModel(string inPipeTag, string outPipeTag)
         {
             inPipeID = inPipeTag;
             outPipeID = outPipeTag;
             pipeReaderTask = null;
+            thisHandler = null;
+        }
+        public void BaseInit(string modelParams)
+        {
+            Console.WriteLine("in BaseInit: " + (modelParams == null ? "" : modelParams));
+            if (modelParams == "") return;
+            string[] tokens = modelParams.Split('|');
+            inPipeID = tokens[0];
+            outPipeID = tokens[1];
+        }
+        public void SetReadHandler(ProcessWrapper.ProcessControlHandler clientHandler)
+        {
+            thisHandler = clientHandler;
         }
         public void InitProcess(string procName)
         {
@@ -52,17 +67,19 @@ namespace ProcessWrappers.IOModels
             OpenPipes();
             if (clientProcess == null) return;
 
-            clientProcess.StartInfo.Arguments = "Pipes " + outPipeID + " " + inPipeID;
+            clientProcess.StartInfo.Arguments = IOModelHelper.IOTypeParam[IOType.PIPES] + " " + outPipeID + "|" + inPipeID;
             clientProcess.StartInfo.UseShellExecute = false;
         }
         public void StartProcess()
         {
+            ConnectOutputComms();
             if (clientProcess == null) return;
             clientProcess.Start();
             pipeServerOut.DisposeLocalCopyOfClientHandle();
             pipeServerIn.DisposeLocalCopyOfClientHandle();
+
         }
-        public void ConnectOutputComms()
+        private void ConnectOutputComms()
         {
             // Read user input and send that to the client process. 
             StreamOut = new StreamWriter(pipeOut);
@@ -109,6 +126,12 @@ namespace ProcessWrappers.IOModels
             }
             return null;
         }
+        public void PostReadResult()
+        {
+            string s = ReadResult();
+            if( s != null )
+                thisHandler(s);
+        }
         public void Write(string msg)
         {
             StreamOut.WriteLine(msg);
@@ -134,7 +157,7 @@ namespace ProcessWrappers.IOModels
                     clientProcess.WaitForExit();
                     clientProcess.Close();
                 }
-                catch (Exception e) { }
+                catch (Exception) { }
             }
         }
 

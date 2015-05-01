@@ -42,11 +42,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="ClientWrapper.cs" />
-    <Compile Include="HostWrapper.cs" />
     <Compile Include="IOModels\IOModel.cs" />
     <Compile Include="IOModels\PipeIOModel.cs" />
     <Compile Include="IOModels\QueueIOModel.cs" />
+    <Compile Include="ProcessWrapper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="IOModels\StdIOModel.cs" />
   </ItemGroup>

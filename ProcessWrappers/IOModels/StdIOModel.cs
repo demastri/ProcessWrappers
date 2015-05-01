@@ -12,56 +12,104 @@ namespace ProcessWrappers.IOModels
 {
     internal class StdIOModel : IOModel
     {
-        Process clientProcess;
-        StreamWriter StreamOut;
-        DataReceivedEventHandler thisHandler;
+        /// when a message comes in from the redirected stdin, add it to incoming via client handler
+        /// when a request to write comes in, add it to outgoing
 
-        public StdIOModel(DataReceivedEventHandler handler)
+        /// input from Stdin -> outgoing -> Write to IOModel.stdin -> PWhandler -> incoming -> client handler
+        /// processwrite from client -> outgoing -> write to proc.stdout -> treated as stdin on the server and echoed??
+
+
+        Process clientProcess;
+        StreamWriter StreamOut; // this is the output from the process -> other side of ModelIO
+        StreamReader StreamIn;  // this is the input from the other side of the modelIO -> the process handlers
+        ProcessWrapper.ProcessControlHandler thisHandler;
+        Task<string> thisReadTask;
+
+        public StdIOModel()
         {
-            thisHandler = handler;
+            thisReadTask = null;
+            clientProcess = null;
         }
         public void InitProcess(string procName)
         {
+            if (procName == null) return;
             clientProcess = new Process();
             clientProcess.StartInfo.FileName = procName;
         }
+        public void BaseInit(string modelParams)
+        {
+        }
+        public void SetReadHandler(ProcessWrapper.ProcessControlHandler clientHandler)
+        {
+            thisHandler = clientHandler;
+        }
         public void InitComms()
         {
-            clientProcess.StartInfo.Arguments = "Stdio ";
-            clientProcess.StartInfo.UseShellExecute = false;
+            if (clientProcess != null)
+            {
+                clientProcess.StartInfo.Arguments = IOModelHelper.IOTypeParam[IOType.StdIO];
+                clientProcess.StartInfo.UseShellExecute = false;
 
-            clientProcess.StartInfo.RedirectStandardInput = true;
-            clientProcess.StartInfo.RedirectStandardOutput = true;
-            clientProcess.StartInfo.RedirectStandardError = true;
-            clientProcess.StartInfo.CreateNoWindow = false;
-            clientProcess.OutputDataReceived += thisHandler;
+                clientProcess.StartInfo.RedirectStandardInput = true;
+                clientProcess.StartInfo.RedirectStandardOutput = true;
+                clientProcess.StartInfo.RedirectStandardError = true;
+                clientProcess.StartInfo.CreateNoWindow = true;
+                clientProcess.OutputDataReceived += LocalHandler;
+            }
         }
         public void StartProcess()
         {
-            clientProcess.Start();
-            clientProcess.BeginOutputReadLine();
-        }
-        public void ConnectOutputComms()
-        {
-            StreamOut = clientProcess.StandardInput;
+            if (clientProcess != null)
+                clientProcess.Start();
+            ConnectOutputComms();
         }
         public bool CheckRead()
         {
-            return false;   // noop
+            if (thisReadTask == null)
+                thisReadTask = ClientReadLineAsync();
+            return (thisReadTask != null && thisReadTask.IsCompleted);
         }
         public string ReadResult()
         {
-            return null;    // noop
+            string outStr = null;
+            if (CheckRead())
+            {
+                outStr = thisReadTask.Result;
+                thisReadTask = null;
+            }
+            return outStr;
         }
+        public void PostReadResult()
+        {
+            string s = ReadResult();
+            if (s != null)
+                thisHandler(s);
+        }
+        private void ConnectOutputComms()
+        {
+            if (clientProcess == null)
+            {
+                StreamIn = new StreamReader(Console.OpenStandardInput());
+                StreamOut = new StreamWriter(Console.OpenStandardOutput());
+            }
+            else
+            {
+                StreamIn = clientProcess.StandardOutput;
+                StreamOut = clientProcess.StandardInput;
+            }
+        }
+        string lastMsg = "";
         public void Write(string msg)
         {
-            StreamOut.WriteLine(msg);
+            StreamOut.WriteLine(lastMsg = msg);
             StreamOut.Flush();
         }
         public void Cleanup()
         {
             if (StreamOut != null)
                 StreamOut.Dispose();
+            if (StreamIn != null)
+                StreamIn.Dispose();
 
             if (clientProcess != null)
             {
@@ -71,8 +119,17 @@ namespace ProcessWrappers.IOModels
                     clientProcess.WaitForExit();
                     clientProcess.Close();
                 }
-                catch (Exception e) { }
+                catch (Exception) { }
             }
+        }
+
+        private void LocalHandler(object sender, DataReceivedEventArgs e)
+        {
+            thisHandler(e.Data);
+        }
+        public Task<string> ClientReadLineAsync()
+        {
+            return Task.Run(() => StreamIn.ReadLine());
         }
     }
 }
